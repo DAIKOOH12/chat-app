@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChatApp</title>
+    <style>
+      body {
+        background: #f5f6fa;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        margin: 0;
+        display: flex;
+        height: 100vh;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .chat-container {
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        width: 350px;
+        max-width: 95vw;
+        padding: 0 0 16px 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        background: #4f8cff;
+        color: #fff;
+        padding: 16px;
+        border-radius: 10px 10px 0 0;
+        text-align: center;
+      }
+
+      #messages {
+        list-style: none;
+        padding: 16px;
+        margin: 0;
+        flex: 1;
+        overflow-y: auto;
+        max-height: 350px;
+      }
+
+      #messages li {
+        margin-bottom: 10px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        max-width: 80%;
+        word-break: break-word;
+      }
+
+      #messages li.self {
+        background: #e1f5fe;
+        align-self: flex-end;
+        margin-left: auto;
+      }
+
+      #messages li.reply {
+        background: #f1f8e9;
+        align-self: flex-start;
+        margin-right: auto;
+      }
+
+      #messages li.system {
+        background: #fce4ec;
+        color: #c2185b;
+        text-align: center;
+        font-size: 0.95em;
+      }
+
+      #chat-form {
+        display: flex;
+        border-top: 1px solid #eee;
+        padding: 8px;
+      }
+
+      #message-input {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 1em;
+        outline: none;
+      }
+
+      #chat-form button {
+        background: #4f8cff;
+        color: #fff;
+        border: none;
+        padding: 0 18px;
+        margin-left: 8px;
+        border-radius: 6px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      #chat-form button:hover {
+        background: #2563eb;
+      }
+      .seen {
+        color: #4f8cff;
+        font-size: 0.9em;
+        margin-left: 6px;
+      }
+      .typing-indicator {
+        font-style: italic;
+        color: #666;
+        font-size: 0.9em;
+        padding: 5px 15px;
+        visibility: hidden;
+      }
+
+      .typing-indicator.active {
+        visibility: visible;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chat-container">
+      <header>
+        <h2>ChatApp</h2>
+      </header>
+      <ul id="messages"></ul>
+      <div id="typing-indicator" class="typing-indicator">
+        Ai đó đang nhập...
+      </div>
+      <form id="chat-form" autocomplete="off">
+        <input
+          id="message-input"
+          type="text"
+          placeholder="Type your message..."
+          required
+        />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+      const socket = io('http://localhost:3002');
+      const messages = document.getElementById('messages');
+      const form = document.getElementById('chat-form');
+      const input = document.getElementById('message-input');
+      const typingIndicator = document.getElementById('typing-indicator');
+
+      // Thêm biến theo dõi trạng thái tab và hàng đợi tin nhắn
+      let isTabActive = !document.hidden;
+      const unreadMessages = [];
+      let typingTimeout = null;
+
+      // Theo dõi sự kiện thay đổi khả năng hiển thị của trang
+      document.addEventListener('visibilitychange', function () {
+        isTabActive = !document.hidden;
+
+        // Khi tab được kích hoạt lại, đánh dấu tất cả tin nhắn chưa đọc
+        if (isTabActive && unreadMessages.length > 0) {
+          unreadMessages.forEach((msg) => {
+            socket.emit('seenMessage', {
+              messageId: msg.messageId,
+              senderId: msg.senderId,
+            });
+          });
+          // Xóa hàng đợi sau khi đã đánh dấu đã xem
+          unreadMessages.length = 0;
+        }
+      });
+
+      // Xử lý sự kiện đang nhập
+      input.addEventListener('input', function () {
+        // Chỉ gửi sự kiện khi có nội dung đang nhập
+        if (input.value.length > 0) {
+          socket.emit('typing');
+
+          // Xóa timeout hiện tại nếu có
+          clearTimeout(typingTimeout);
+
+          // Đặt timeout mới để gửi sự kiện ngừng nhập sau 1 giây
+          typingTimeout = setTimeout(() => {
+            socket.emit('stopTyping');
+          }, 1000);
+        } else {
+          // Nếu input trống, ngừng nhập ngay lập tức
+          clearTimeout(typingTimeout);
+          socket.emit('stopTyping');
+        }
+      });
+
+      // Xử lý khi gửi tin nhắn, tự động ngừng nhập
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (input.value) {
+          // Gửi sự kiện ngừng nhập khi gửi tin nhắn
+          socket.emit('stopTyping');
+          clearTimeout(typingTimeout);
+
+          socket.emit('newMessage', input.value);
+          input.value = '';
+        }
+      });
+
+      socket.on('user-joined', (data) => {
+        const li = document.createElement('li');
+        li.className = 'system';
+        li.textContent = data.message;
+        messages.appendChild(li);
+      });
+
+      socket.on('user-left', (data) => {
+        const li = document.createElement('li');
+        li.className = 'system';
+        li.textContent = data.message;
+        messages.appendChild(li);
+      });
+
+      // Xử lý sự kiện người khác đang nhập
+      socket.on('userTyping', (data) => {
+        typingIndicator.textContent = `${data.senderId.slice(0, 4)}... đang nhập...`;
+        typingIndicator.classList.add('active');
+      });
+
+      // Xử lý sự kiện người khác ngừng nhập
+      socket.on('userStopTyping', () => {
+        typingIndicator.classList.remove('active');
+      });
+
+      socket.on('reply', (msg) => {
+        const li = document.createElement('li');
+        li.className = msg.senderId === socket.id ? 'self' : 'reply';
+        li.textContent = msg.message;
+        li.dataset.messageId = msg.id;
+        li.dataset.senderId = msg.senderId;
+
+        // Thêm trạng thái tin nhắn
+        if (msg.senderId === socket.id) {
+          const statusSpan = document.createElement('span');
+          statusSpan.className = 'seen';
+          statusSpan.textContent =
+            msg.status === 'sent' ? '✓ Đã gửi' : '✓ Đã xem';
+          li.appendChild(statusSpan);
+        }
+
+        messages.appendChild(li);
+        messages.scrollTop = messages.scrollHeight;
+
+        // Xử lý tin nhắn nhận được dựa trên trạng thái tab
+        if (msg.senderId !== socket.id) {
+          if (isTabActive) {
+            // Nếu tab đang active, đánh dấu tin nhắn đã xem ngay
+            socket.emit('seenMessage', {
+              messageId: msg.id,
+              senderId: msg.senderId,
+            });
+          } else {
+            // Nếu tab không active, thêm vào hàng đợi tin nhắn chưa đọc
+            unreadMessages.push({
+              messageId: msg.id,
+              senderId: msg.senderId,
+            });
+          }
+        }
+      });
+
+      socket.on('messageSeen', (data) => {
+        // Tìm tin nhắn phù hợp và cập nhật trạng thái đã xem
+        const items = document.querySelectorAll('li.self');
+        items.forEach((li) => {
+          if (
+            li.dataset.messageId === data.messageId &&
+            li.dataset.senderId === socket.id
+          ) {
+            const statusSpan = li.querySelector('.seen');
+            if (statusSpan) {
+              statusSpan.textContent = '✓✓ Đã xem';
+            } else {
+              const newStatusSpan = document.createElement('span');
+              newStatusSpan.className = 'seen';
+              newStatusSpan.textContent = '✓✓ Đã xem';
+              li.appendChild(newStatusSpan);
+            }
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
