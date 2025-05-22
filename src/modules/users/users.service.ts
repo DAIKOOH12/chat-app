@@ -12,6 +12,11 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
   ) {}
 
+  async getAllUsers() {
+    const listUses = await this.userRepository.find();
+    return listUses;
+  }
+
   async createUser(userData: Partial<User>): Promise<User> {
     const hashedPassword = await bcrypt.hash(userData.password, 10);
     userData.password = hashedPassword;
