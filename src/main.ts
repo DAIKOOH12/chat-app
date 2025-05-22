@@ -5,7 +5,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: 'https://chat-app-fe-six-fawn.vercel.app/',
+    origin: 'https://chat-app-fe-six-fawn.vercel.app',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     Credentials: true,
   });
